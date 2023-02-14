@@ -23,12 +23,8 @@ class Condition(models.Model):
     
 class Eligibility(models.Model):
     study = models.ForeignKey(Study, on_delete=models.CASCADE)
-    sampling_method = models.CharField(max_length=100)
     gender = models.CharField(max_length=10, verbose_name="성별")
     minimum_age = models.CharField(max_length=30, verbose_name="최소 나이")
     maximum_age = models.CharField(max_length=30, verbose_name="최대 나이")
     healthy_volunteers = models.CharField(max_length=100)
-    population = models.TextField()
     criteria = models.TextField()
-    gender_description = models.TextField()
-    gender_based = models.TextField()
