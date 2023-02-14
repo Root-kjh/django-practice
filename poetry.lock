@@ -55,12 +55,32 @@ argon2 = ["argon2-cffi (>=19.1.0)"]
 bcrypt = ["bcrypt"]
 
 [[package]]
+name = "djangorestframework"
+version = "3.14.0"
+description = "Web APIs for Django, made easy."
+category = "main"
+optional = false
+python-versions = ">=3.6"
+
+[package.dependencies]
+django = ">=3.0"
+pytz = "*"
+
+[[package]]
 name = "idna"
 version = "3.4"
 description = "Internationalized Domain Names in Applications (IDNA)"
 category = "main"
 optional = false
 python-versions = ">=3.5"
+
+[[package]]
+name = "pytz"
+version = "2022.7.1"
+description = "World timezone definitions, modern and historical"
+category = "main"
+optional = false
+python-versions = "*"
 
 [[package]]
 name = "requests"
@@ -112,7 +132,7 @@ socks = ["PySocks (>=1.5.6,!=1.5.7,<2.0)"]
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.8"
-content-hash = "46a8dbc4c11f19396d0cbd311f00dfd423153e4ae46b588c56288a0112a015f6"
+content-hash = "7fa9ad764713f6e630b6727acd67fc757ae48b6bbdff6f8c4af78ac667f95afc"
 
 [metadata.files]
 asgiref = []
@@ -120,7 +140,9 @@ asgiref = []
 certifi = []
 charset-normalizer = []
 django = []
+djangorestframework = []
 idna = []
+pytz = []
 requests = []
 sqlparse = []
 tzdata = []
