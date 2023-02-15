@@ -28,3 +28,7 @@ class Eligibility(models.Model):
     maximum_age = models.CharField(max_length=30, verbose_name="최대 나이", null=True, blank=True)
     healthy_volunteers = models.CharField(max_length=100, null=True, blank=True)
     criteria = models.TextField(null=True, blank=True)
+
+class ConfigurationVariable(models.Model):
+    name = models.CharField(max_length=100, unique=True, verbose_name="변수명")
+    value = models.CharField(max_length=100, verbose_name="값")
