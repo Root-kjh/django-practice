@@ -2,6 +2,7 @@ import requests
 from rest_framework.exceptions import ValidationError
 from tqdm import tqdm
 
+from .models import ConfigurationVariable
 from .serializers import StudySerializer
 
 def get_studies_num():
@@ -81,8 +82,9 @@ def save_all_studies():
     clinicaltrials.gov 에서 제공하는 API 에서 전체 임상 연구 목록을 저장하는 메소드
     """
     studies_num = get_studies_num()
-    with tqdm(total=studies_num) as progress_bar:
-        for start in range(1, studies_num, 100):
+    loaded_studies_num = int(ConfigurationVariable.objects.get_or_create(name='loaded_studies_num', defaults={'value': 1})[0].value)
+    with tqdm(total=studies_num, initial=loaded_studies_num) as progress_bar:
+        for start in range(loaded_studies_num, studies_num, 100):
             end = start + 99
             studies = get_studies(start, end)
             for study in studies:
@@ -96,4 +98,5 @@ def save_all_studies():
                     raise e
                 finally:
                     progress_bar.update(1)
+                    ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=progress_bar.n)
                 study_serializer.save()
