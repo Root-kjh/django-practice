@@ -1,5 +1,6 @@
 import requests
 from rest_framework.exceptions import ValidationError
+from tqdm import tqdm
 
 from .serializers import StudySerializer
 
@@ -80,16 +81,19 @@ def save_all_studies():
     clinicaltrials.gov 에서 제공하는 API 에서 전체 임상 연구 목록을 저장하는 메소드
     """
     studies_num = get_studies_num()
-    for start in range(1, studies_num, 100):
-        end = start + 99
-        studies = get_studies(start, end)
-        for study in studies:
-            study = convert_study(study)
-            study_serializer = StudySerializer(data=study)
-            try:
-                study_serializer.is_valid(raise_exception=True)
-            except ValidationError as e:
-                if e.detail.get('nct_id', None) is not None and e.detail['nct_id'][0].code == 'unique':
-                    continue
-                raise e
-            study_serializer.save()
+    with tqdm(total=studies_num) as progress_bar:
+        for start in range(1, studies_num, 100):
+            end = start + 99
+            studies = get_studies(start, end)
+            for study in studies:
+                study = convert_study(study)
+                study_serializer = StudySerializer(data=study)
+                try:
+                    study_serializer.is_valid(raise_exception=True)
+                except ValidationError as e:
+                    if e.detail.get('nct_id', None) is not None and e.detail['nct_id'][0].code == 'unique':
+                        continue
+                    raise e
+                finally:
+                    progress_bar.update(1)
+                study_serializer.save()
