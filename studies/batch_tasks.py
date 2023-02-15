@@ -1,6 +1,7 @@
 import requests
 from rest_framework.exceptions import ValidationError
 from tqdm import tqdm
+from time import sleep
 
 from .models import ConfigurationVariable
 from .serializers import StudySerializer
@@ -14,12 +15,27 @@ def get_studies_num():
     studies_num = int(response.json()['StudyStatistics']['ElmtDefs']['Study']['nInstances'])
     return studies_num
 
-def get_studies(start, end):
+def get_studies(start, end, sleep_count = 0):
     """
     clinicaltrials.gov 에서 제공하는 API 에서 임상 연구 목록을 가져오는 메소드
     """
+    if sleep_count >= 10:
+        raise ValidationError('clinicaltrials.gov API 요청 제한')
+    
     CLINICALTRIALS_OPEN_API_BASE_URL = 'https://clinicaltrials.gov/api/query/full_studies'
     response = requests.get(CLINICALTRIALS_OPEN_API_BASE_URL, params={'fmt': 'json', 'min_rnk': start, 'max_rnk': end})
+    
+    if response.status_code == 404:
+        raise ValidationError('clinicaltrials.gov API 응답 없음')
+
+    if response.status_code == 401 or response.status_code == 403:
+        sleep(600)
+        get_studies(start, end, sleep_count+1)
+    
+    if response.status_code//100 == 5:
+        sleep(60)
+        get_studies(start, end, sleep_count+1)
+
     response_json = response.json()
     if response_json['FullStudiesResponse']['NStudiesFound'] == 0:
         return []
@@ -100,3 +116,4 @@ def save_all_studies():
                     progress_bar.update(1)
                     ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=progress_bar.n)
                 study_serializer.save()
+    ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=1)
