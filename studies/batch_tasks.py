@@ -2,6 +2,7 @@ import requests
 from rest_framework.exceptions import ValidationError
 from tqdm import tqdm
 from time import sleep
+from translate import Translator
 
 from .models import ConfigurationVariable
 from .serializers import StudySerializer
@@ -53,8 +54,8 @@ def convert_study(study):
     else:
         title = None
 
-    interventions = study['Study']['ProtocolSection'].get('InterventionModule', {}).get('InterventionList', {}).get('Intervention', [])
-    conditions = study['Study']['ProtocolSection'].get('ConditionModule', {}).get('ConditionList', {}).get('Condition', [])
+    interventions = study['Study']['ProtocolSection'].get('ArmsInterventionsModule', {}).get('InterventionList', {}).get('Intervention', [])
+    conditions = study['Study']['ProtocolSection'].get('ConditionsModule', {}).get('ConditionList', {}).get('Condition', [])
     eligibility_module = study['Study']['ProtocolSection'].get('EligibilityModule', None)
     if eligibility_module is None:
         eligibility = []
@@ -66,6 +67,7 @@ def convert_study(study):
                 'maximum_age': eligibility_module.get('MaximumAge', None),
                 'healthy_volunteers': eligibility_module.get('HealthyVolunteers', None),
                 'criteria': eligibility_module.get('EligibilityCriteria', None),
+                'locale': 'en',
             }
         ]
     return {
@@ -78,19 +80,79 @@ def convert_study(study):
         'overall_status': description_module.get('OverallStatus', None),
         'phase': description_module.get('Phase', None),
         'enrollment': description_module.get('Enrollment', None),
-        'intervensions': [
+        'interventions': [
             {
                 'intervention_type': intervention.get('InterventionType', None),
                 'name': intervention.get('InterventionName', None),
-                'description': intervention.get('Description', None),
+                'description': intervention.get('InterventionDescription', None),
+                'locale': 'en',
             }
             for intervention in interventions
         ],
         'conditions': [
-            condition['Condition']
+            {
+                'name': condition,
+                'locale': 'en',
+            }
             for condition in conditions
         ],
         'eligibilities': eligibility,
+        'locale': 'en',
+        'original_study': None,
+    }
+
+def translate(text):
+    if text is None:
+        return None
+    translator = Translator(to_lang='ko')
+    return translator.translate(text)
+
+def translate_study(study):
+    """
+    임상 연구 데이터를 번역하는 메소드
+    """
+    return {
+        'nct_id': study.nct_id,
+        'title': translate(study.title),
+        'results_first_submitted_date': study.results_first_submitted_date,
+        'last_update_submitted_date': study.last_update_submitted_date,
+        'start_date': study.start_date,
+        'completion_date': study.completion_date,
+        'overall_status': translate(study.overall_status),
+        'phase': translate(study.phase),
+        'enrollment': study.enrollment,
+        'interventions': [
+            {
+                'intervention_type': translate(intervention.intervention_type),
+                'name': translate(intervention.name),
+                'description': translate(intervention.description),
+                'locale': 'ko',
+                'original_intervention': intervention.pk
+            }
+            for intervention in study.interventions.all()
+        ],
+        'conditions': [
+            {
+                'name': translate(condition.name),
+                'locale': 'ko',
+                'original_condition': condition.pk
+            }
+            for condition in study.conditions.all()
+        ],
+        'eligibilities': [
+            {
+                'gender': translate(eligibility.gender),
+                'minimum_age': eligibility.minimum_age,
+                'maximum_age': eligibility.maximum_age,
+                'healthy_volunteers': translate(eligibility.healthy_volunteers),
+                'criteria': translate(eligibility.criteria),
+                'locale': 'ko',
+                'original_eligibility': eligibility.pk
+            }
+            for eligibility in study.eligibilities.all()
+        ],
+        'locale': 'ko',
+        'original_study': study.pk
     }
 
 def save_all_studies():
@@ -108,6 +170,10 @@ def save_all_studies():
                 study_serializer = StudySerializer(data=study)
                 try:
                     study_serializer.is_valid(raise_exception=True)
+                    study_serializer.save()
+                    translated_study_serializer = StudySerializer(data=translate_study(study_serializer.instance))
+                    translated_study_serializer.is_valid(raise_exception=True)
+                    translated_study_serializer.save()
                 except ValidationError as e:
                     if e.detail.get('nct_id', None) is not None and e.detail['nct_id'][0].code == 'unique':
                         continue
@@ -115,5 +181,5 @@ def save_all_studies():
                 finally:
                     progress_bar.update(1)
                     ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=progress_bar.n)
-                study_serializer.save()
+
     ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=1)
