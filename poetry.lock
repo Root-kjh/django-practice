@@ -97,6 +97,14 @@ django = ">=3.0"
 pytz = "*"
 
 [[package]]
+name = "drf-writable-nested"
+version = "0.7.0"
+description = "Writable nested helpers for django-rest-framework's serializers"
+category = "main"
+optional = false
+python-versions = ">=3.7"
+
+[[package]]
 name = "idna"
 version = "3.4"
 description = "Internationalized Domain Names in Applications (IDNA)"
@@ -215,7 +223,7 @@ socks = ["PySocks (>=1.5.6,!=1.5.7,<2.0)"]
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.8"
-content-hash = "b9f5fe61eea024d19c6307219af043ce460086b3534e71cb816e59ff5c3dd13c"
+content-hash = "3d980e1918b049447df590e2a615873b3f92a778b657c5e20c84aa579e193711"
 
 [metadata.files]
 asgiref = []
@@ -227,6 +235,7 @@ colorama = []
 django = []
 django-crontab = []
 djangorestframework = []
+drf-writable-nested = []
 idna = []
 libretranslatepy = []
 lxml = []

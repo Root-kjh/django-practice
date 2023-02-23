@@ -12,6 +12,7 @@ djangorestframework = "^3.14.0"
 tqdm = "^4.64.1"
 django-crontab = "^0.7.1"
 translate = "^3.6.1"
+drf-writable-nested = "^0.7.0"
 
 [tool.poetry.dev-dependencies]
 
