@@ -10,6 +10,9 @@ from .models import ConfigurationVariable, Study
 from .assets import ControlStatusType
 from .serializers import StudySerializer
 
+def get_nct_id(study):
+    return study['Study']['ProtocolSection']['IdentificationModule']['NCTId']
+
 def get_studies_num():
     """
     clinicaltrials.gov 에 존재하는 임상 연구 개수를 가져오는 메소드
@@ -214,6 +217,7 @@ def save_study_original_datas():
                 study.save()
                 progress_bar.update(1)
                 ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=progress_bar.n)
+    ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=1)
 
 def convert_studies():
     """
@@ -251,3 +255,64 @@ def translate_studies():
                 finally:
                     progress_bar.update(1)
 
+def save_all_new_studies():
+    """
+    clinicaltrials.gov 에서 제공하는 API 에서 전체 임상 연구 중 신규 임상을 저장하는 메소드
+    """
+    studies_num = get_studies_num()
+    loaded_new_studies_num = int(ConfigurationVariable.objects.get_or_create(name='loaded_new_studies_num', defaults={'value': 1})[0].value)
+    with tqdm(total=studies_num, initial=loaded_new_studies_num) as progress_bar:
+        for start in range(1, studies_num, 100):
+            end = start + 99
+            studies = get_studies(start, end)
+            for original_data in studies:
+                # save
+                with transaction.atomic():
+                    if Study.objects.filter(nct_id=get_nct_id(original_data)).exists():
+                        progress_bar.update(1)
+                        ConfigurationVariable.objects.filter(name='loaded_new_studies_num').update(value=progress_bar.n)
+                        continue
+                    study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY)
+                    study.save()
+                try:
+                    # convert
+                    with transaction.atomic():
+                        study_serializer = StudySerializer(data=convert_study(original_data), instance=study)
+                        study_serializer.is_valid(raise_exception=True)
+                        study_serializer.save()
+
+                    # translate
+                    with transaction.atomic():
+                        translated_study_serializer = StudySerializer(data=translate_study(study_serializer.instance))
+                        translated_study_serializer.is_valid(raise_exception=True)
+                        translated_study_serializer.save()
+                        study.control_status_type = ControlStatusType.COMPLETED
+                        study.save()
+                except:
+                    traceback.print_exc()
+                finally:
+                    progress_bar.update(1)
+                    ConfigurationVariable.objects.filter(name='loaded_new_studies_num').update(value=progress_bar.n)
+
+    ConfigurationVariable.objects.filter(name='loaded_new_studies_num').update(value=1)
+def save_new_study_original_datas():
+    """
+    clinicaltrials.gov 에서 제공하는 API 에서 신규 임상 연구 데이터를 저장하는 메소드
+    """
+    studies_num = get_studies_num()
+    loaded_new_studies_num = int(ConfigurationVariable.objects.get_or_create(name='loaded_new_studies_num', defaults={'value': 1})[0].value)
+    with tqdm(total=studies_num, initial=loaded_new_studies_num) as progress_bar:
+        for start in range(1, studies_num, 100):
+            end = start + 99
+            studies = get_studies(start, end)
+            for original_data in studies:
+                if Study.objects.filter(nct_id=get_nct_id(original_data)).exists():
+                    progress_bar.update(1)
+                    ConfigurationVariable.objects.filter(name='loaded_new_studies_num').update(value=progress_bar.n)
+                    continue
+                study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY)
+                study.save()
+                progress_bar.update(1)
+                ConfigurationVariable.objects.filter(name='loaded_new_studies_num').update(value=progress_bar.n)
+
+    ConfigurationVariable.objects.filter(name='loaded_new_studies_num').update(value=1)
