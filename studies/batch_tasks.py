@@ -3,8 +3,11 @@ from rest_framework.exceptions import ValidationError
 from tqdm import tqdm
 from time import sleep
 from translate import Translator
+from django.db import transaction
+import traceback
 
-from .models import ConfigurationVariable
+from .models import ConfigurationVariable, Study
+from .assets import ControlStatusType
 from .serializers import StudySerializer
 
 def get_studies_num():
@@ -99,6 +102,7 @@ def convert_study(study):
         'eligibilities': eligibility,
         'locale': 'en',
         'original_study': None,
+        'control_status_type': ControlStatusType.TRANSLATE_READY,
     }
 
 def translate(text):
@@ -152,7 +156,8 @@ def translate_study(study):
             for eligibility in study.eligibilities.all()
         ],
         'locale': 'ko',
-        'original_study': study.pk
+        'original_study': study.pk,
+        'control_status_type': ControlStatusType.COMPLETED,
     }
 
 def save_all_studies():
@@ -165,15 +170,25 @@ def save_all_studies():
         for start in range(loaded_studies_num, studies_num, 100):
             end = start + 99
             studies = get_studies(start, end)
-            for study in studies:
-                study = convert_study(study)
-                study_serializer = StudySerializer(data=study)
+            for original_data in studies:
+                # save
+                with transaction.atomic():
+                    study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY)
+                    study.save()
                 try:
-                    study_serializer.is_valid(raise_exception=True)
-                    study_serializer.save()
-                    translated_study_serializer = StudySerializer(data=translate_study(study_serializer.instance))
-                    translated_study_serializer.is_valid(raise_exception=True)
-                    translated_study_serializer.save()
+                    # convert
+                    with transaction.atomic():
+                        study_serializer = StudySerializer(data=convert_study(original_data), instance=study)
+                        study_serializer.is_valid(raise_exception=True)
+                        study_serializer.save()
+
+                    # translate
+                    with transaction.atomic():
+                        translated_study_serializer = StudySerializer(data=translate_study(study_serializer.instance))
+                        translated_study_serializer.is_valid(raise_exception=True)
+                        translated_study_serializer.save()
+                        study.control_status_type = ControlStatusType.COMPLETED
+                        study.save()
                 except ValidationError as e:
                     if e.detail.get('nct_id', None) is not None and e.detail['nct_id'][0].code == 'unique':
                         continue
@@ -183,3 +198,56 @@ def save_all_studies():
                     ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=progress_bar.n)
 
     ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=1)
+
+def save_study_original_datas():
+    """
+    clinicaltrials.gov 에서 제공하는 API 에서 임상 연구 데이터를 저장하는 메소드
+    """
+    studies_num = get_studies_num()
+    loaded_studies_num = int(ConfigurationVariable.objects.get_or_create(name='loaded_studies_num', defaults={'value': 1})[0].value)
+    with tqdm(total=studies_num, initial=loaded_studies_num) as progress_bar:
+        for start in range(loaded_studies_num, studies_num, 100):
+            end = start + 99
+            studies = get_studies(start, end)
+            for original_data in studies:
+                study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY)
+                study.save()
+                progress_bar.update(1)
+                ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=progress_bar.n)
+
+def convert_studies():
+    """
+    저장된 original_data를 이용하여 임상 연구 데이터를 저장하는 메소드
+    """
+    studies_count = Study.objects.filter(control_status_type=ControlStatusType.CONVERT_READY).count()
+    with tqdm(total=studies_count) as progress_bar:
+        for study in Study.objects.filter(control_status_type=ControlStatusType.CONVERT_READY)[:100]:
+            with transaction.atomic():
+                try:
+                    study_serializer = StudySerializer(data=convert_study(study.original_data), instance=study)
+                    study_serializer.is_valid(raise_exception=True)
+                    study_serializer.save()
+                except:
+                    traceback.print_exc()
+                finally:
+                    progress_bar.update(1)
+
+def translate_studies():
+    """
+    저장된 임상 연구 데이터를 번역하는 메소드
+    """
+    studies_count = Study.objects.filter(control_status_type=ControlStatusType.TRANSLATE_READY).count()
+    with tqdm(total=studies_count) as progress_bar:
+        for study in Study.objects.filter(control_status_type=ControlStatusType.TRANSLATE_READY)[:100]:
+            with transaction.atomic():
+                try:
+                    translated_study_serializer = StudySerializer(data=translate_study(study))
+                    translated_study_serializer.is_valid(raise_exception=True)
+                    translated_study_serializer.save()
+                    study.control_status_type = ControlStatusType.COMPLETED
+                    study.save()
+                except:
+                    traceback.print_exc()
+                finally:
+                    progress_bar.update(1)
+
