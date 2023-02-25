@@ -180,9 +180,22 @@ def save_all_studies():
             studies = get_studies(start, end)
             for original_data in studies:
                 # save
+                study = Study.objects.filter(nct_id=get_nct_id(original_data)).first()
+                original_data_hash = get_original_data_hash(original_data)
                 with transaction.atomic():
-                    study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY, original_data_hash=get_original_data_hash(original_data))
-                    study.save()
+                    if study is None:
+                        study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY, original_data_hash=get_original_data_hash(original_data))
+                        study.save()
+                    elif study.original_data_hash != original_data_hash and not Study.objects.filter(clone_from_study=study).exists():
+                        study = Study.objects.get(nct_id=get_nct_id(original_data), translate_from_study__isnull=True).clone()
+                        study.original_data = original_data
+                        study.original_data_hash = original_data_hash
+                        study.control_status_type = ControlStatusType.CONVERT_READY
+                        study.save()
+                    else:
+                        progress_bar.update(1)
+                        ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=progress_bar.n)
+                        continue
                 try:
                     # convert
                     with transaction.atomic():
@@ -335,10 +348,11 @@ def update_study_original_data():
             for original_data in studies:
                 study = Study.objects.filter(nct_id=get_nct_id(original_data)).first()
                 original_data_hash = get_original_data_hash(original_data)
-                if study is not None and study.original_data_hash != original_data_hash:
-                    study = Study.objects.get(nct_id=get_nct_id(original_data))
+                if study is not None and study.original_data_hash != original_data_hash and not Study.objects.filter(clone_from_study=study).exists():
+                    study = Study.objects.get(nct_id=get_nct_id(original_data), translate_from_study__isnull=True).clone()
                     study.original_data = original_data
                     study.original_data_hash = original_data_hash
+                    study.control_status_type = ControlStatusType.CONVERT_READY
                     study.save()
                 progress_bar.update(1)
                 ConfigurationVariable.objects.filter(name='updated_studies_num').update(value=progress_bar.n)
