@@ -6,7 +6,7 @@ from .models import Study, Intervention, Condition, Eligibility
 class InterventionSerializer(ModelSerializer):
     class Meta:
         model = Intervention
-        fields = ['intervention_type', 'name', 'description', 'original_intervention', 'locale']
+        fields = ['intervention_type', 'name', 'description', 'translate_from_intervention', 'locale']
 
 
 class ConditionSerializer(ModelSerializer):
@@ -18,7 +18,7 @@ class ConditionSerializer(ModelSerializer):
 class EligibilitySerializer(ModelSerializer):
     class Meta:
         model = Eligibility
-        fields = ['gender', 'minimum_age', 'maximum_age', 'healthy_volunteers', 'criteria', 'original_eligibility', 'locale']
+        fields = ['gender', 'minimum_age', 'maximum_age', 'healthy_volunteers', 'criteria', 'translate_from_eligibility', 'locale']
 
 
 class StudySerializer(WritableNestedModelSerializer):

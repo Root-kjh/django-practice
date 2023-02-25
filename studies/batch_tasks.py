@@ -109,7 +109,7 @@ def convert_study(study):
         ],
         'eligibilities': eligibility,
         'locale': 'en',
-        'original_study': None,
+        'translate_from_study': None,
         'control_status_type': ControlStatusType.TRANSLATE_READY,
     }
 
@@ -139,7 +139,7 @@ def translate_study(study):
                 'name': translate(intervention.name),
                 'description': translate(intervention.description),
                 'locale': 'ko',
-                'original_intervention': intervention.pk
+                'translate_from_intervention': intervention.pk
             }
             for intervention in study.interventions.all()
         ],
@@ -159,12 +159,12 @@ def translate_study(study):
                 'healthy_volunteers': translate(eligibility.healthy_volunteers),
                 'criteria': translate(eligibility.criteria),
                 'locale': 'ko',
-                'original_eligibility': eligibility.pk
+                'translate_from_eligibility': eligibility.pk
             }
             for eligibility in study.eligibilities.all()
         ],
         'locale': 'ko',
-        'original_study': study.pk,
+        'translate_from_study': study.pk,
         'control_status_type': ControlStatusType.COMPLETED,
     }
 
@@ -321,3 +321,26 @@ def save_new_study_original_datas():
                 ConfigurationVariable.objects.filter(name='loaded_new_studies_num').update(value=progress_bar.n)
 
     ConfigurationVariable.objects.filter(name='loaded_new_studies_num').update(value=1)
+
+def update_study_original_data():
+    """
+    clinicaltrials.gov 에서 제공하는 API 에서 임상 연구 데이터를 업데이트 하는 메소드
+    """
+    studies_num = get_studies_num()
+    updated_studies_num = int(ConfigurationVariable.objects.get_or_create(name='updated_studies_num', defaults={'value': 1})[0].value)
+    with tqdm(total=studies_num, initial=updated_studies_num) as progress_bar:
+        for start in range(1, studies_num, 100):
+            end = start + 99
+            studies = get_studies(start, end)
+            for original_data in studies:
+                study = Study.objects.filter(nct_id=get_nct_id(original_data)).first()
+                original_data_hash = get_original_data_hash(original_data)
+                if study is not None and study.original_data_hash != original_data_hash:
+                    study = Study.objects.get(nct_id=get_nct_id(original_data))
+                    study.original_data = original_data
+                    study.original_data_hash = original_data_hash
+                    study.save()
+                progress_bar.update(1)
+                ConfigurationVariable.objects.filter(name='updated_studies_num').update(value=progress_bar.n)
+
+    ConfigurationVariable.objects.filter(name='updated_studies_num').update(value=1)
