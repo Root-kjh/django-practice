@@ -5,10 +5,15 @@ from time import sleep
 from translate import Translator
 from django.db import transaction
 import traceback
+import hashlib
+import json
 
 from .models import ConfigurationVariable, Study
 from .assets import ControlStatusType
 from .serializers import StudySerializer
+
+def get_original_data_hash(original_data):
+    return hashlib.sha256(json.dumps(original_data).encode('utf-8')).hexdigest()
 
 def get_nct_id(study):
     return study['Study']['ProtocolSection']['IdentificationModule']['NCTId']
@@ -176,7 +181,7 @@ def save_all_studies():
             for original_data in studies:
                 # save
                 with transaction.atomic():
-                    study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY)
+                    study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY, original_data_hash=get_original_data_hash(original_data))
                     study.save()
                 try:
                     # convert
@@ -213,7 +218,7 @@ def save_study_original_datas():
             end = start + 99
             studies = get_studies(start, end)
             for original_data in studies:
-                study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY)
+                study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY, original_data_hash=get_original_data_hash(original_data))
                 study.save()
                 progress_bar.update(1)
                 ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=progress_bar.n)
@@ -272,7 +277,7 @@ def save_all_new_studies():
                         progress_bar.update(1)
                         ConfigurationVariable.objects.filter(name='loaded_new_studies_num').update(value=progress_bar.n)
                         continue
-                    study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY)
+                    study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY, original_data_hash=get_original_data_hash(original_data))
                     study.save()
                 try:
                     # convert
@@ -310,7 +315,7 @@ def save_new_study_original_datas():
                     progress_bar.update(1)
                     ConfigurationVariable.objects.filter(name='loaded_new_studies_num').update(value=progress_bar.n)
                     continue
-                study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY)
+                study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY, original_data_hash=get_original_data_hash(original_data))
                 study.save()
                 progress_bar.update(1)
                 ConfigurationVariable.objects.filter(name='loaded_new_studies_num').update(value=progress_bar.n)

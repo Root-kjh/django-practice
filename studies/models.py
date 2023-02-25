@@ -6,6 +6,7 @@ class Study(models.Model):
     nct_id = models.CharField(verbose_name="임상연구 번호", max_length=50)
     control_status_type = models.CharField(max_length=50, verbose_name="임상연구 적재 상태", null=True, blank=True, choices=ControlStatusType.choices)
     original_data = models.TextField(verbose_name="원본 데이터", null=True, blank=True)
+    original_data_hash = models.CharField(max_length=64, verbose_name="original_data sha256 hash", null=True, blank=True)
     results_first_submitted_date = models.DateField(verbose_name="최초 제출 날짜", null=True, blank=True)
     last_update_submitted_date = models.DateField(verbose_name="최근 수정 날짜", null=True, blank=True)
     start_date = models.DateField(verbose_name="임상연구 시작 날짜", null=True, blank=True)
