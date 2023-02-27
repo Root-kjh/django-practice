@@ -54,6 +54,8 @@ def get_studies(start, end, sleep_count = 0):
     return response_json['FullStudiesResponse']['FullStudies']
 
 def convert_study(study):
+    if type(study) is not dict:
+        study = json.loads(study)
     description_module = study['Study']['ProtocolSection'].get('DescriptionModule', {})
 
     if 'OfficialTitle' in description_module:
@@ -180,11 +182,13 @@ def save_all_studies():
             studies = get_studies(start, end)
             for original_data in studies:
                 # save
-                study = Study.objects.filter(nct_id=get_nct_id(original_data)).first()
+                nct_id = get_nct_id(original_data)
+                study = Study.objects.filter(nct_id=nct_id).first()
+                original_data = json.dumps(original_data)
                 original_data_hash = get_original_data_hash(original_data)
                 with transaction.atomic():
                     if study is None:
-                        study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY, original_data_hash=get_original_data_hash(original_data))
+                        study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY, original_data_hash=original_data_hash, nct_id=nct_id)
                         study.save()
                     elif study.original_data_hash != original_data_hash and not Study.objects.filter(clone_from_study=study).exists():
                         study = Study.objects.get(nct_id=get_nct_id(original_data), translate_from_study__isnull=True).clone()
@@ -199,13 +203,14 @@ def save_all_studies():
                 try:
                     # convert
                     with transaction.atomic():
-                        study_serializer = StudySerializer(data=convert_study(original_data), instance=study)
+                        study_serializer = StudySerializer(data=convert_study(study.original_data), instance=study)
                         study_serializer.is_valid(raise_exception=True)
                         study_serializer.save()
 
                     # translate
                     with transaction.atomic():
-                        translated_study_serializer = StudySerializer(data=translate_study(study_serializer.instance))
+                        study.translated_studies.all().delete()
+                        translated_study_serializer = StudySerializer(data=translate_study(study))
                         translated_study_serializer.is_valid(raise_exception=True)
                         translated_study_serializer.save()
                         study.control_status_type = ControlStatusType.COMPLETED
@@ -231,7 +236,9 @@ def save_study_original_datas():
             end = start + 99
             studies = get_studies(start, end)
             for original_data in studies:
-                study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY, original_data_hash=get_original_data_hash(original_data))
+                nct_id = get_nct_id(original_data)
+                original_data = json.dumps(original_data)
+                study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY, original_data_hash=get_original_data_hash(original_data), nct_id=nct_id)
                 study.save()
                 progress_bar.update(1)
                 ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=progress_bar.n)
@@ -263,6 +270,7 @@ def translate_studies():
         for study in Study.objects.filter(control_status_type=ControlStatusType.TRANSLATE_READY)[:100]:
             with transaction.atomic():
                 try:
+                    study.translated_studies.all().delete()
                     translated_study_serializer = StudySerializer(data=translate_study(study))
                     translated_study_serializer.is_valid(raise_exception=True)
                     translated_study_serializer.save()
@@ -290,18 +298,21 @@ def save_all_new_studies():
                         progress_bar.update(1)
                         ConfigurationVariable.objects.filter(name='loaded_new_studies_num').update(value=progress_bar.n)
                         continue
-                    study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY, original_data_hash=get_original_data_hash(original_data))
+                    nct_id = get_nct_id(original_data)
+                    original_data = json.dumps(original_data)
+                    study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY, original_data_hash=get_original_data_hash(original_data), nct_id=nct_id)
                     study.save()
                 try:
                     # convert
                     with transaction.atomic():
-                        study_serializer = StudySerializer(data=convert_study(original_data), instance=study)
+                        study_serializer = StudySerializer(data=convert_study(study.original_data), instance=study)
                         study_serializer.is_valid(raise_exception=True)
                         study_serializer.save()
 
                     # translate
                     with transaction.atomic():
-                        translated_study_serializer = StudySerializer(data=translate_study(study_serializer.instance))
+                        study.translated_studies.all().delete()
+                        translated_study_serializer = StudySerializer(data=translate_study(study))
                         translated_study_serializer.is_valid(raise_exception=True)
                         translated_study_serializer.save()
                         study.control_status_type = ControlStatusType.COMPLETED
@@ -328,7 +339,9 @@ def save_new_study_original_datas():
                     progress_bar.update(1)
                     ConfigurationVariable.objects.filter(name='loaded_new_studies_num').update(value=progress_bar.n)
                     continue
-                study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY, original_data_hash=get_original_data_hash(original_data))
+                nct_id = get_nct_id(original_data)
+                original_data = get_original_data_hash(original_data)
+                study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY, original_data_hash=get_original_data_hash(original_data), nct_id=nct_id)
                 study.save()
                 progress_bar.update(1)
                 ConfigurationVariable.objects.filter(name='loaded_new_studies_num').update(value=progress_bar.n)
@@ -346,10 +359,11 @@ def update_study_original_data():
             end = start + 99
             studies = get_studies(start, end)
             for original_data in studies:
-                study = Study.objects.filter(nct_id=get_nct_id(original_data)).first()
+                original_study = Study.objects.filter(nct_id=get_nct_id(original_data), translate_from_study__isnull=True).first()
+                original_data = json.dumps(original_data)
                 original_data_hash = get_original_data_hash(original_data)
-                if study is not None and study.original_data_hash != original_data_hash and not Study.objects.filter(clone_from_study=study).exists():
-                    study = Study.objects.get(nct_id=get_nct_id(original_data), translate_from_study__isnull=True).clone()
+                if original_study is not None and original_study.original_data_hash != original_data_hash and not Study.objects.filter(clone_from_study=original_study).exists():
+                    study = original_study.clone()
                     study.original_data = original_data
                     study.original_data_hash = original_data_hash
                     study.control_status_type = ControlStatusType.CONVERT_READY
