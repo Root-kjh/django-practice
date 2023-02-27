@@ -47,6 +47,16 @@ class Study(models.Model):
             eligibility.clone(cloned_study)
         return cloned_study
 
+    def save(self, *args, **kwargs) -> None:
+        if self.control_status_type == ControlStatusType.COMPLETED and self.clone_from_study is not None:
+            clone_from_study_id = self.clone_from_study_id
+            self.translated_studies.all().update(clone_from_study=None)
+            self.clone_from_study = None
+            self.save()
+            Study.objects.filter(id=clone_from_study_id).delete()
+            return
+        return super().save(*args, **kwargs)
+
     class Meta:
         unique_together = ('translate_from_study', 'locale')
 
