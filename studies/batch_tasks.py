@@ -4,13 +4,17 @@ from tqdm import tqdm
 from time import sleep
 from translate import Translator
 from django.db import transaction
+from django.db.models import Prefetch
 import traceback
 import hashlib
 import json
+from copy import deepcopy
 
-from .models import ConfigurationVariable, Study
+from .models import ConfigurationVariable, Study, Condition, Intervention, Eligibility
 from .assets import ControlStatusType
 from .serializers import StudySerializer
+
+TRANSLATE_FIELDS = ['title', 'overall_status', 'phase']
 
 def get_original_data_hash(original_data):
     return hashlib.sha256(json.dumps(original_data).encode('utf-8')).hexdigest()
@@ -53,10 +57,85 @@ def get_studies(start, end, sleep_count = 0):
         return []
     return response_json['FullStudiesResponse']['FullStudies']
 
+def convert_conditions(condition_module):
+    conditions = []
+    condition_instances = list(Condition.objects.filter(name__in=condition_module))
+    for condition in condition_module:
+        condition_id = None
+        for condition_instance in condition_instances:
+            if condition_instance.name == condition:
+                condition_id = condition_instance.id
+                break
+        conditions.append({
+            'id':  condition_id,
+            'name': condition,
+            'locale': 'en',
+        })
+    return conditions
+
+def convert_interventions(study, intervention_module):
+    interventions = []
+    intervention_instances = list(Intervention.objects.filter(study=study))
+    for intervention in intervention_module:
+        intervention_id = None
+        for intervention_instance in intervention_instances:
+            if (
+                intervention_instance.name == intervention.get('InterventionName', None) and \
+                intervention_instance.intervention_type == intervention.get('InterventionType', None) and \
+                intervention_instance.description == intervention.get('InterventionDescription', None)
+            ):
+                intervention_id = intervention_instance.pk
+                intervention_instances.remove(intervention_instance)
+                break
+        interventions.append({
+            'id': intervention_id,
+            'intervention_type': intervention.get('InterventionType', None),
+            'name': intervention.get('InterventionName', None),
+            'description': intervention.get('InterventionDescription', None),
+            'locale': 'en',
+        })
+    return interventions
+
+def convert_eligibilities(study, eligibility_module):
+    if eligibility_module is None:
+        return []
+    eligibility_instances = list(Eligibility.objects.filter(study=study))
+    eligibility_id = None
+    for eligibility_instance in eligibility_instances:
+        if (
+            eligibility_instance.gender == eligibility_module.get('Gender', None) and \
+            eligibility_instance.minimum_age == eligibility_module.get('MinimumAge', None) and \
+            eligibility_instance.maximum_age == eligibility_module.get('MaximumAge', None) and \
+            eligibility_instance.healthy_volunteers == eligibility_module.get('HealthyVolunteers', None) and \
+            eligibility_instance.criteria == eligibility_module.get('EligibilityCriteria', None)
+        ):
+            eligibility_id = eligibility_instance.pk
+            eligibility_instances.remove(eligibility_instance)
+            break
+    return [{
+        'id': eligibility_id,
+        'gender': eligibility_module.get('Gender', None),
+        'minimum_age': eligibility_module.get('MinimumAge', None),
+        'maximum_age': eligibility_module.get('MaximumAge', None),
+        'healthy_volunteers': eligibility_module.get('HealthyVolunteers', None),
+        'criteria': eligibility_module.get('EligibilityCriteria', None),
+        'locale': 'en',
+    }]
+
+def mark_updated_sutdy_field(study, convert_data):
+    translated_studies = Study.objects.filter(translate_from_study=study)
+    for field in TRANSLATE_FIELDS:
+        if getattr(study, field) != convert_data[field]:
+            for translated_study in translated_studies:
+                setattr(translated_study, field, "<updated>")
+    for translated_study in translated_studies:
+        translated_study.save()
+
 def convert_study(study):
-    if type(study) is not dict:
-        study = json.loads(study)
-    description_module = study['Study']['ProtocolSection'].get('DescriptionModule', {})
+    original_data = study.original_data
+    if type(original_data) is not dict:
+        original_data = json.loads(original_data)
+    description_module = original_data['Study']['ProtocolSection'].get('DescriptionModule', {})
 
     if 'OfficialTitle' in description_module:
         title = description_module['OfficialTitle']
@@ -67,24 +146,8 @@ def convert_study(study):
     else:
         title = None
 
-    interventions = study['Study']['ProtocolSection'].get('ArmsInterventionsModule', {}).get('InterventionList', {}).get('Intervention', [])
-    conditions = study['Study']['ProtocolSection'].get('ConditionsModule', {}).get('ConditionList', {}).get('Condition', [])
-    eligibility_module = study['Study']['ProtocolSection'].get('EligibilityModule', None)
-    if eligibility_module is None:
-        eligibility = []
-    else:
-        eligibility = [
-            {
-                'gender': eligibility_module.get('Gender', None),
-                'minimum_age': eligibility_module.get('MinimumAge', None),
-                'maximum_age': eligibility_module.get('MaximumAge', None),
-                'healthy_volunteers': eligibility_module.get('HealthyVolunteers', None),
-                'criteria': eligibility_module.get('EligibilityCriteria', None),
-                'locale': 'en',
-            }
-        ]
-    return {
-        'nct_id': study['Study']['ProtocolSection']['IdentificationModule']['NCTId'],
+    convert_data = {
+        'nct_id': original_data['Study']['ProtocolSection']['IdentificationModule']['NCTId'],
         'title': title,
         'results_first_submitted_date': description_module.get('ResultsFirstSubmittedDate', None),
         'last_update_submitted_date': description_module.get('LastUpdateSubmittedDate', None),
@@ -93,27 +156,15 @@ def convert_study(study):
         'overall_status': description_module.get('OverallStatus', None),
         'phase': description_module.get('Phase', None),
         'enrollment': description_module.get('Enrollment', None),
-        'interventions': [
-            {
-                'intervention_type': intervention.get('InterventionType', None),
-                'name': intervention.get('InterventionName', None),
-                'description': intervention.get('InterventionDescription', None),
-                'locale': 'en',
-            }
-            for intervention in interventions
-        ],
-        'conditions': [
-            {
-                'name': condition,
-                'locale': 'en',
-            }
-            for condition in conditions
-        ],
-        'eligibilities': eligibility,
+        'interventions': convert_interventions(study, original_data['Study']['ProtocolSection'].get('ArmsInterventionsModule', {}).get('InterventionList', {}).get('Intervention', [])),
+        'conditions': convert_conditions(original_data['Study']['ProtocolSection'].get('ConditionsModule', {}).get('ConditionList', {}).get('Condition', [])),
+        'eligibilities': convert_eligibilities(study, original_data['Study']['ProtocolSection'].get('EligibilityModule', None)),
         'locale': 'en',
         'translate_from_study': None,
         'control_status_type': ControlStatusType.TRANSLATE_READY,
     }
+    mark_updated_sutdy_field(study, convert_data)
+    return convert_data
 
 def translate(text):
     if text is None:
@@ -121,40 +172,73 @@ def translate(text):
     translator = Translator(to_lang='ko')
     return translator.translate(text)
 
-def translate_study(study):
+def translate_study(study, translated_study=None):
     """
     임상 연구 데이터를 번역하는 메소드
     """
-    return {
-        'nct_id': study.nct_id,
-        'title': translate(study.title),
-        'results_first_submitted_date': study.results_first_submitted_date,
-        'last_update_submitted_date': study.last_update_submitted_date,
-        'start_date': study.start_date,
-        'completion_date': study.completion_date,
-        'overall_status': translate(study.overall_status),
-        'phase': translate(study.phase),
-        'enrollment': study.enrollment,
-        'interventions': [
-            {
+    translated_text_dict = {translate_field:None for translate_field in TRANSLATE_FIELDS}
+    if translated_study is not None:
+        for translate_field in TRANSLATE_FIELDS:
+            if getattr(translated_study, translate_field) != "<updated>":
+                translated_text_dict[translate_field] = getattr(translated_study, translate_field)
+    for translate_field in TRANSLATE_FIELDS:
+        if translated_text_dict[translate_field] is None and getattr(study, translate_field) is not None:
+            translated_text_dict[translate_field] = translate(getattr(study, translate_field))
+
+    conditions = []
+    for condition in study.conditions.all().prefetch_related(Prefetch("translated_conditions", queryset=Condition.objects.filter(locale='ko'))):
+        translated_condition = condition.translated_conditions.first()
+        if translated_condition is not None:
+            conditions.append({
+                'id': translated_condition.pk,
+                'name': translated_condition.name,
+                'locale': 'ko',
+                'translate_from_condition': condition.pk
+            })
+        else:
+            conditions.append({
+                'name': translate(condition.name),
+                'locale': 'ko',
+                'translate_from_condition': condition.pk
+            })
+
+    interventions = []
+    for intervention in Intervention.objects.filter(study=study).prefetch_related(Prefetch("translated_interventions", queryset=Intervention.objects.filter(locale='ko'))):
+        translated_intervention = intervention.translated_interventions.first()
+        if translated_intervention is not None:
+            interventions.append({
+                'id': translated_intervention.pk,
+                'intervention_type': translated_intervention.intervention_type,
+                'name': translated_intervention.name,
+                'description': translated_intervention.description,
+                'locale': 'ko',
+                'translate_from_intervention': intervention.pk
+            })
+        else:
+            interventions.append({
                 'intervention_type': translate(intervention.intervention_type),
                 'name': translate(intervention.name),
                 'description': translate(intervention.description),
                 'locale': 'ko',
                 'translate_from_intervention': intervention.pk
-            }
-            for intervention in study.interventions.all()
-        ],
-        'conditions': [
-            {
-                'name': translate(condition.name),
+            })
+
+    eligibilities = []
+    for eligibility in Eligibility.objects.filter(study=study).prefetch_related(Prefetch("translated_eligibilities", queryset=Eligibility.objects.filter(locale='ko'))):
+        translated_eligibility = eligibility.translated_eligibilities.first()
+        if translated_eligibility is not None:
+            eligibilities.append({
+                'id': translated_eligibility.pk,
+                'gender': translated_eligibility.gender,
+                'minimum_age': translated_eligibility.minimum_age,
+                'maximum_age': translated_eligibility.maximum_age,
+                'healthy_volunteers': translated_eligibility.healthy_volunteers,
+                'criteria': translated_eligibility.criteria,
                 'locale': 'ko',
-                'original_condition': condition.pk
-            }
-            for condition in study.conditions.all()
-        ],
-        'eligibilities': [
-            {
+                'translate_from_eligibility': eligibility.pk
+            })
+        else:
+            eligibilities.append({
                 'gender': translate(eligibility.gender),
                 'minimum_age': eligibility.minimum_age,
                 'maximum_age': eligibility.maximum_age,
@@ -162,9 +246,21 @@ def translate_study(study):
                 'criteria': translate(eligibility.criteria),
                 'locale': 'ko',
                 'translate_from_eligibility': eligibility.pk
-            }
-            for eligibility in study.eligibilities.all()
-        ],
+            })
+
+    return {
+        'nct_id': study.nct_id,
+        'title': translated_text_dict['title'],
+        'results_first_submitted_date': study.results_first_submitted_date,
+        'last_update_submitted_date': study.last_update_submitted_date,
+        'start_date': study.start_date,
+        'completion_date': study.completion_date,
+        'overall_status': translated_text_dict['overall_status'],
+        'phase': translated_text_dict['phase'],
+        'enrollment': study.enrollment,
+        'interventions': interventions,
+        'conditions': conditions,
+        'eligibilities': eligibilities,
         'locale': 'ko',
         'translate_from_study': study.pk,
         'control_status_type': ControlStatusType.COMPLETED,
@@ -203,13 +299,12 @@ def save_all_studies():
                 try:
                     # convert
                     with transaction.atomic():
-                        study_serializer = StudySerializer(data=convert_study(study.original_data), instance=study)
+                        study_serializer = StudySerializer(data=convert_study(study), instance=study)
                         study_serializer.is_valid(raise_exception=True)
                         study_serializer.save()
 
                     # translate
                     with transaction.atomic():
-                        study.translated_studies.all().delete()
                         translated_study_serializer = StudySerializer(data=translate_study(study))
                         translated_study_serializer.is_valid(raise_exception=True)
                         translated_study_serializer.save()
@@ -222,7 +317,6 @@ def save_all_studies():
                 finally:
                     progress_bar.update(1)
                     ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=progress_bar.n)
-
     ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=1)
 
 def save_study_original_datas():
@@ -253,7 +347,7 @@ def convert_studies():
         for study in Study.objects.filter(control_status_type=ControlStatusType.CONVERT_READY)[:100]:
             with transaction.atomic():
                 try:
-                    study_serializer = StudySerializer(data=convert_study(study.original_data), instance=study)
+                    study_serializer = StudySerializer(data=convert_study(study), instance=study)
                     study_serializer.is_valid(raise_exception=True)
                     study_serializer.save()
                 except:
@@ -270,8 +364,11 @@ def translate_studies():
         for study in Study.objects.filter(control_status_type=ControlStatusType.TRANSLATE_READY)[:100]:
             with transaction.atomic():
                 try:
-                    study.translated_studies.all().delete()
-                    translated_study_serializer = StudySerializer(data=translate_study(study))
+                    translated_study = study.translated_studies.filter(locale='ko').first()
+                    if translated_study is None:
+                        translated_study_serializer = StudySerializer(data=translate_study(study))
+                    else:
+                        translated_study_serializer = StudySerializer(data=translate_study(study, translated_study), instance=translated_study)
                     translated_study_serializer.is_valid(raise_exception=True)
                     translated_study_serializer.save()
                     study.control_status_type = ControlStatusType.COMPLETED
@@ -305,13 +402,12 @@ def save_all_new_studies():
                 try:
                     # convert
                     with transaction.atomic():
-                        study_serializer = StudySerializer(data=convert_study(study.original_data), instance=study)
+                        study_serializer = StudySerializer(data=convert_study(study), instance=study)
                         study_serializer.is_valid(raise_exception=True)
                         study_serializer.save()
 
                     # translate
                     with transaction.atomic():
-                        study.translated_studies.all().delete()
                         translated_study_serializer = StudySerializer(data=translate_study(study))
                         translated_study_serializer.is_valid(raise_exception=True)
                         translated_study_serializer.save()
