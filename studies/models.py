@@ -103,7 +103,7 @@ class Eligibility(models.Model):
         cloned_eligibility.study = study
         cloned_eligibility.clone_from_eligibility = self
         if self.translate_from_eligibility is not None:
-            cloned_eligibility.translate_from_eligibility = self.translate_from_eligibility.clone_from_eligibility
+            cloned_eligibility.translate_from_eligibility = self.translate_from_eligibility.cloned_eligibility
         cloned_eligibility.save()
         return cloned_eligibility
         
