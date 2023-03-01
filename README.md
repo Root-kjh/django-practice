@@ -12,15 +12,15 @@
 ## 사용법
 각 적재 태스크는 django command를 이용해 진행합니다.
 
-1. save all studies: 전체 임상연구를 적재 or 업데이트합니다.
+1. `save_studies --save-all-studies`: 전체 임상연구를 적재 or 업데이트합니다.
 
-2. save all new studies: 신규 임상연구를 적재합니다.
+2. `save_studies --save-all-new-studies`: 신규 임상연구를 적재합니다.
 
-3. save new original data: 신규 임상연구를 저장합니다(original_data만을 저장하고 convert, translate task는 수행하지 않습니다).
+3. `save_studies --save-new-original-data`: 신규 임상연구를 저장합니다(original_data만을 저장하고 convert, translate task는 수행하지 않습니다).
 
-4. update original data: 기존 임상연구를 업데이트합니다(original_data만을 저장하고 convert, translate task는 수행하지 않습니다).
+4. `save_studies --update-original-data`: 기존 임상연구를 업데이트합니다(original_data만을 저장하고 convert, translate task는 수행하지 않습니다).
 
-5. convert original data: original_data를 study model에 맞게 변환합니다.    
+5. `save_studies --convert`: original_data를 study model에 맞게 변환합니다.    
 
-6. translate study: 영문 임상연구의 한글 번역본을 생성합니다.
+6. `save_studies --translate`: 영문 임상연구의 한글 번역본을 생성합니다.
 
