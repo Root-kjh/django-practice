@@ -319,25 +319,6 @@ def save_all_studies():
                     ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=progress_bar.n)
     ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=1)
 
-def save_study_original_datas():
-    """
-    clinicaltrials.gov 에서 제공하는 API 에서 임상 연구 데이터를 저장하는 메소드
-    """
-    studies_num = get_studies_num()
-    loaded_studies_num = int(ConfigurationVariable.objects.get_or_create(name='loaded_studies_num', defaults={'value': 1})[0].value)
-    with tqdm(total=studies_num, initial=loaded_studies_num) as progress_bar:
-        for start in range(loaded_studies_num, studies_num, 100):
-            end = start + 99
-            studies = get_studies(start, end)
-            for original_data in studies:
-                nct_id = get_nct_id(original_data)
-                original_data = json.dumps(original_data)
-                study = Study(original_data=original_data, control_status_type=ControlStatusType.CONVERT_READY, original_data_hash=get_original_data_hash(original_data), nct_id=nct_id)
-                study.save()
-                progress_bar.update(1)
-                ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=progress_bar.n)
-    ConfigurationVariable.objects.filter(name='loaded_studies_num').update(value=1)
-
 def convert_studies():
     """
     저장된 original_data를 이용하여 임상 연구 데이터를 저장하는 메소드

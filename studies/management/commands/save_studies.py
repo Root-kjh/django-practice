@@ -4,7 +4,6 @@ from studies.batch_tasks import save_all_studies, convert_studies, translate_stu
 
 class CommandAction(Enum):
     SAVE_ALL_STUDIES = "save_all_studies"
-    SAVE_ORIGINAL_DATA = "save_original_data"
     CONVERT = "convert"
     TRANSLATE = "translate"
     SAVE_ALL_NEW_STUDIES = "save_all_new_studies"
@@ -17,7 +16,6 @@ class Command(BaseCommand):
 
     actions = {
         CommandAction.SAVE_ALL_STUDIES: save_all_studies,
-        CommandAction.SAVE_ORIGINAL_DATA: save_study_original_datas,
         CommandAction.CONVERT: convert_studies,
         CommandAction.TRANSLATE: translate_studies,
         CommandAction.SAVE_ALL_NEW_STUDIES: save_all_new_studies,
@@ -32,13 +30,6 @@ class Command(BaseCommand):
             dest="action",
             const=CommandAction.SAVE_ALL_STUDIES,
             help="save all studies",
-        )
-        parser.add_argument(
-            "--save-original-data",
-            action="store_const",
-            dest="action",
-            const=CommandAction.SAVE_ORIGINAL_DATA,
-            help="save original data",
         )
         parser.add_argument(
             "--convert",
